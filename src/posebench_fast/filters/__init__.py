@@ -2,9 +2,9 @@
 
 from posebench_fast.filters.fast_filters import (
     calc_posebusters,
+    check_geometry,
     check_intermolecular_distance,
     check_volume_overlap,
-    check_geometry,
 )
 
 __all__ = [

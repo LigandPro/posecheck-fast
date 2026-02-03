@@ -1,28 +1,30 @@
 """Fast PoseBusters filters without full energy evaluation."""
 
-from posebusters.modules.intermolecular_distance import _pairwise_distance
-import pandas as pd
-import numpy as np
-
 from copy import deepcopy
 
-from rdkit.Chem.rdShapeHelpers import ShapeTverskyIndex
+import numpy as np
+import pandas as pd
+import torch
+from posebusters.modules.intermolecular_distance import _pairwise_distance
 from rdkit import Chem
 from rdkit.Chem import MolFromSmarts
-from rdkit.Chem.rdchem import Mol
+from rdkit.Chem.rdchem import GetPeriodicTable, Mol
 from rdkit.Chem.rdDistGeom import GetMoleculeBoundsMatrix
 from rdkit.Chem.rdmolops import SanitizeMol
-
-import torch
-from rdkit.Chem.rdchem import GetPeriodicTable
-
+from rdkit.Chem.rdShapeHelpers import ShapeTverskyIndex
 
 _periodic_table = GetPeriodicTable()
 # get all atoms from periodic table
-atoms_vocab = {_periodic_table.GetElementSymbol(
-    i+1): i for i in range(_periodic_table.GetMaxAtomicNumber())}
-vdw_radius = torch.tensor([_periodic_table.GetRvdw(_periodic_table.GetElementSymbol(
-    i+1)) for i in range(_periodic_table.GetMaxAtomicNumber())])
+atoms_vocab = {
+    _periodic_table.GetElementSymbol(i + 1): i
+    for i in range(_periodic_table.GetMaxAtomicNumber())
+}
+vdw_radius = torch.tensor(
+    [
+        _periodic_table.GetRvdw(_periodic_table.GetElementSymbol(i + 1))
+        for i in range(_periodic_table.GetMaxAtomicNumber())
+    ]
+)
 
 col_lb = "lower_bound"
 col_ub = "upper_bound"
@@ -75,7 +77,28 @@ _empty_results = {
 
 # Allowable features for atom types (simplified version)
 ALLOWABLE_ATOM_TYPES = [
-    1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 23, 26, 27, 29, 30, 33, 34, 35, 44, 51, 53, 78
+    1,
+    5,
+    6,
+    7,
+    8,
+    9,
+    14,
+    15,
+    16,
+    17,
+    23,
+    26,
+    27,
+    29,
+    30,
+    33,
+    34,
+    35,
+    44,
+    51,
+    53,
+    78,
 ]
 
 
@@ -101,11 +124,13 @@ def symmetrize_conjugated_terminal_bonds(df: pd.DataFrame, mol: Mol) -> pd.DataF
         return _sort_bond_ids(matches)
 
     df["atom_types_sorted"] = df["atom_types"].apply(
-        lambda a: tuple(sorted(a.split("--"))))
+        lambda a: tuple(sorted(a.split("--")))
+    )
     matches = _get_terminal_group_matches(mol)
     matched = df[df["atom_pair"].isin(matches)].copy()
     grouped = matched.groupby("atom_types_sorted").agg(
-        {"lower_bound": np.amin, "upper_bound": np.amax})
+        {"lower_bound": np.amin, "upper_bound": np.amax}
+    )
     index_orig = matched.index
     matched = matched.set_index("atom_types_sorted")
     matched.update(grouped)
@@ -192,7 +217,7 @@ def check_intermolecular_distance(
     radius_scale: float = 1.0,
     clash_cutoff: float = 0.75,
     clash_cutoff_volume: float = 0.075,
-    ignore_types: set = {"H"},
+    ignore_types: set | None = None,
     max_distance: float = 5.0,
     search_distance: float = 6.0,
     vdw_scale: float = 0.8,
@@ -217,14 +242,18 @@ def check_intermolecular_distance(
     Returns:
         Dictionary with filter results
     """
+    if ignore_types is None:
+        ignore_types = {"H"}
     device = "cuda" if torch.cuda.is_available() else "cpu"
     coords_ligand = torch.tensor(pos_pred, device=device).float()
     coords_protein = torch.tensor(pos_cond, device=device).float()
 
     atoms_ligand = torch.tensor(
-        [atoms_vocab[atom] for atom in atom_names_pred], device=device).long()
+        [atoms_vocab[atom] for atom in atom_names_pred], device=device
+    ).long()
     atoms_protein_all = torch.tensor(
-        [atoms_vocab[atom] for atom in atom_names_cond], device=device).long()
+        [atoms_vocab[atom] for atom in atom_names_cond], device=device
+    ).long()
 
     mask = atoms_ligand != atoms_vocab["H"]
     coords_ligand = coords_ligand[:, mask, :]
@@ -237,13 +266,13 @@ def check_intermolecular_distance(
     radius_ligand = vdw_radius.to(device)[atoms_ligand]
     radius_protein_all = vdw_radius.to(device)[atoms_protein_all]
 
-    distances_all = (coords_ligand[:, :, None] -
-                     coords_protein[None, None, :]).norm(dim=-1)
+    distances_all = (coords_ligand[:, :, None] - coords_protein[None, None, :]).norm(
+        dim=-1
+    )
     distances = distances_all
     radius_protein = radius_protein_all
 
-    is_buried_fraction = (distances < 5).any(
-        dim=-1).sum(dim=-1) / distances.size(1)
+    is_buried_fraction = (distances < 5).any(dim=-1).sum(dim=-1) / distances.size(1)
 
     radius_sum = radius_ligand[None, :, None] + radius_protein[None, None, :]
     distance = distances
@@ -252,26 +281,44 @@ def check_intermolecular_distance(
     clash = relative_distance < clash_cutoff
 
     candidates = distance < (
-        (radius_ligand[None, :, None] + radius_protein_all[None, None, :]) * vdw_scale + 2 * 3 * 0.25)
+        (radius_ligand[None, :, None] + radius_protein_all[None, None, :]) * vdw_scale
+        + 2 * 3 * 0.25
+    )
     ids_conds = candidates.any(dim=1).cpu().numpy()
     overlap = []
     for i in range(coords_ligand.size(0)):
         ids_cond = ids_conds[i]
-        overlap.append(ShapeTverskyIndex(
-            mol_from_symbols_and_npcoords(atom_names_pred, pos_pred[i]),
-            mol_from_symbols_and_npcoords(
-                atom_names_cond[ids_cond], pos_cond[ids_cond]),
-            alpha=1,
-            beta=0,
-            vdwScale=vdw_scale,
-        ) < clash_cutoff_volume)
+        overlap.append(
+            ShapeTverskyIndex(
+                mol_from_symbols_and_npcoords(atom_names_pred, pos_pred[i]),
+                mol_from_symbols_and_npcoords(
+                    atom_names_cond[ids_cond], pos_cond[ids_cond]
+                ),
+                alpha=1,
+                beta=0,
+                vdwScale=vdw_scale,
+            )
+            < clash_cutoff_volume
+        )
 
     results = {
-        "not_too_far_away": (distance.reshape(distance.size(0), -1).min(dim=-1)[0] <= max_distance).tolist(),
+        "not_too_far_away": (
+            distance.reshape(distance.size(0), -1).min(dim=-1)[0] <= max_distance
+        ).tolist(),
         "no_clashes": torch.logical_not(clash.any(dim=(1, 2))).tolist(),
         "no_volume_clash": overlap,
         "is_buried_fraction": is_buried_fraction.tolist(),
-        "no_internal_clash": check_geometry(mol_orig, coords_ligand, threshold_bad_bond_length=0.25, threshold_clash=0.3, threshold_bad_angle=0.25, bound_matrix_params=bound_matrix_params, ignore_hydrogens=True, sanitize=True, symmetrize_conjugated_terminal_groups=True),
+        "no_internal_clash": check_geometry(
+            mol_orig,
+            coords_ligand,
+            threshold_bad_bond_length=0.25,
+            threshold_clash=0.3,
+            threshold_bad_angle=0.25,
+            bound_matrix_params=bound_matrix_params,
+            ignore_hydrogens=True,
+            sanitize=True,
+            symmetrize_conjugated_terminal_groups=True,
+        ),
     }
     return {"results": results}
 
@@ -283,7 +330,7 @@ def check_volume_overlap(
     atom_names_cond,
     clash_cutoff: float = 0.05,
     vdw_scale: float = 0.8,
-    ignore_types: set = {"H"},
+    ignore_types: set | None = None,
     search_distance: float = 6.0,
 ):
     """Check volume overlap between ligand and protein.
@@ -301,6 +348,8 @@ def check_volume_overlap(
     Returns:
         Dictionary with volume overlap results
     """
+    if ignore_types is None:
+        ignore_types = {"H"}
     keep_mask = atom_names_cond != "H"
     pos_cond = pos_cond[keep_mask]
     atom_names_cond = atom_names_cond[keep_mask]
@@ -321,7 +370,7 @@ def check_volume_overlap(
         alpha=1,
         beta=0,
         vdwScale=vdw_scale,
-        ignoreHs=ignore_hydrogens
+        ignoreHs=ignore_hydrogens,
     )
 
     results = {
@@ -360,8 +409,7 @@ def check_geometry(
         List of booleans indicating valid geometry
     """
     mol_pred = deepcopy(mol_orig)
-    mol_pred.GetConformer().SetPositions(
-        pos_preds[0].cpu().numpy().astype(np.float64))
+    mol_pred.GetConformer().SetPositions(pos_preds[0].cpu().numpy().astype(np.float64))
     assert mol_pred.GetNumConformers() == 1, "Molecule must have exactly one conformer"
     mol = deepcopy(mol_pred)
     results = _empty_results.copy()
@@ -390,11 +438,12 @@ def check_geometry(
     lower_triangle_idcs = np.tril_indices(mol.GetNumAtoms(), k=-1)
     upper_triangle_idcs = (lower_triangle_idcs[1], lower_triangle_idcs[0])
     df_12 = pd.DataFrame()
-    df_12["atom_pair"] = list(zip(*upper_triangle_idcs))
+    df_12["atom_pair"] = list(zip(*upper_triangle_idcs, strict=False))
     df_12["atom_types"] = [
-        "--".join(tuple(mol.GetAtomWithIdx(int(j)).GetSymbol() for j in i)) for i in df_12["atom_pair"]
+        "--".join(tuple(mol.GetAtomWithIdx(int(j)).GetSymbol() for j in i))
+        for i in df_12["atom_pair"]
     ]
-    df_12["angle"] = df_12["atom_pair"].apply(lambda x: angle_set.get(x, None))
+    df_12["angle"] = df_12["atom_pair"].apply(lambda x: angle_set.get(x))
     df_12["has_hydrogen"] = [_has_hydrogen(mol, i) for i in df_12["atom_pair"]]
     df_12["is_bond"] = [i in bond_set for i in df_12["atom_pair"]]
     df_12["is_angle"] = df_12["angle"].apply(lambda x: x is not None)
@@ -402,21 +451,28 @@ def check_geometry(
     df_12[col_ub] = bounds[upper_triangle_idcs]
     if symmetrize_conjugated_terminal_groups:
         df_12 = symmetrize_conjugated_terminal_bonds(df_12, mol)
-    distances_all = (pos_preds[:, :, None] - pos_preds[:, None, :]).norm(
-        dim=-1)[:, lower_triangle_idcs[0], lower_triangle_idcs[1]]
-    distances_valid = distances_all[:,
-                                    (~df_12["is_bond"] & ~df_12["is_angle"]).values]
+    distances_all = (pos_preds[:, :, None] - pos_preds[:, None, :]).norm(dim=-1)[
+        :, lower_triangle_idcs[0], lower_triangle_idcs[1]
+    ]
+    distances_valid = distances_all[:, (~df_12["is_bond"] & ~df_12["is_angle"]).values]
     lower_bounds_valid = torch.tensor(
-        df_12[col_lb][~df_12["is_bond"] & ~df_12["is_angle"]].values, device=distances_valid.device)
-    df_clash = torch.where(distances_valid >= lower_bounds_valid[None], 0, (
-        distances_valid - lower_bounds_valid[None]) / lower_bounds_valid[None])
+        df_12[col_lb][~df_12["is_bond"] & ~df_12["is_angle"]].values,
+        device=distances_valid.device,
+    )
+    df_clash = torch.where(
+        distances_valid >= lower_bounds_valid[None],
+        0,
+        (distances_valid - lower_bounds_valid[None]) / lower_bounds_valid[None],
+    )
     col_n_clashes_count = (df_clash < -threshold_clash).sum(dim=-1)
     col_n_good_noncov_count = len(df_clash) - col_n_clashes_count
     res = (col_n_good_noncov_count == len(df_clash)).tolist()
     return res
 
 
-def calc_posebusters(pos_pred, pos_cond, atom_ids_pred, atom_names_cond, names, lig_mol_for_posebusters):
+def calc_posebusters(
+    pos_pred, pos_cond, atom_ids_pred, atom_names_cond, names, lig_mol_for_posebusters
+):
     """Calculate fast PoseBusters filters.
 
     Args:
@@ -433,28 +489,38 @@ def calc_posebusters(pos_pred, pos_cond, atom_ids_pred, atom_names_cond, names, 
     if 22 in atom_ids_pred:
         with open("error.txt", "a") as f:
             f.write(f"Error in {names}\n")
-            f.write(f"22 (misc) in atom_ids_pred\n")
+            f.write("22 (misc) in atom_ids_pred\n")
         return None
-    atom_names_pred = np.array([_periodic_table.GetElementSymbol(
-        ALLOWABLE_ATOM_TYPES[atom_id]) for atom_id in atom_ids_pred if atom_id >= 0], dtype=object)
+    atom_names_pred = np.array(
+        [
+            _periodic_table.GetElementSymbol(ALLOWABLE_ATOM_TYPES[atom_id])
+            for atom_id in atom_ids_pred
+            if atom_id >= 0
+        ],
+        dtype=object,
+    )
 
     posebusters_results = {}
     try:
-        assert len(pos_pred[0]) == len(
-            atom_names_pred), f"len(pos_pred[i]) = {len(pos_pred[0])} != len(atom_names_pred[i]) = {len(atom_names_pred)}"
-        assert len(pos_cond) == len(
-            atom_names_cond), f"len(pos_cond[i]) = {len(pos_cond[0])} != len(atom_names_cond[i]) = {len(atom_names_cond)}"
+        assert len(pos_pred[0]) == len(atom_names_pred), (
+            f"len(pos_pred[i]) = {len(pos_pred[0])} != len(atom_names_pred[i]) = {len(atom_names_pred)}"
+        )
+        assert len(pos_cond) == len(atom_names_cond), (
+            f"len(pos_cond[i]) = {len(pos_cond[0])} != len(atom_names_cond[i]) = {len(atom_names_cond)}"
+        )
     except Exception as e:
         print(f"Error in {names}")
         print(e)
         with open("error.txt", "a") as f:
             f.write(f"Error in {names}\n")
             f.write(
-                f"len(pos_pred[i]) = {len(pos_pred[0])} != len(atom_names_pred[i]) = {len(atom_names_pred)}\n")
+                f"len(pos_pred[i]) = {len(pos_pred[0])} != len(atom_names_pred[i]) = {len(atom_names_pred)}\n"
+            )
         return None
     res1 = check_intermolecular_distance(
-        lig_mol_for_posebusters, pos_pred, pos_cond, atom_names_pred, atom_names_cond)
-    res = {**res1['results']}
-    for key in res.keys():
+        lig_mol_for_posebusters, pos_pred, pos_cond, atom_names_pred, atom_names_cond
+    )
+    res = {**res1["results"]}
+    for key in res:
         posebusters_results[key] = res[key]
     return posebusters_results

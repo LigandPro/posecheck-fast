@@ -1,15 +1,14 @@
 # Taken from https://github.com/RMeli/spyrmsd and https://github.com/gcorso/DiffDock/
 
-from typing import Any, List, Optional, Tuple, Union
-import numpy as np
-
-from spyrmsd import graph, molecule, qcp, utils
-
 import signal
 from contextlib import contextmanager
+from typing import Any
+
+import numpy as np
+from spyrmsd import graph, molecule, qcp, utils
 
 
-class TimeoutException(Exception):
+class TimeoutException(Exception):  # noqa: N818
     pass
 
 
@@ -38,12 +37,12 @@ def compute_all_isomorphisms(rdkit_mol):
     try:
         with time_limit(2):
             mol = molecule.Molecule.from_rdkit(rdkit_mol)
-            G1 = graph.graph_from_adjacency_matrix(
-                mol.adjacency_matrix, mol.atomicnums)
+            G1 = graph.graph_from_adjacency_matrix(mol.adjacency_matrix, mol.atomicnums)
             isomorphisms = graph.match_graphs(G1, G1)
     except TimeoutException:
-        isomorphisms = [(list(range(rdkit_mol.GetNumAtoms())),
-                         list(range(rdkit_mol.GetNumAtoms())))]
+        isomorphisms = [
+            (list(range(rdkit_mol.GetNumAtoms())), list(range(rdkit_mol.GetNumAtoms())))
+        ]
     return isomorphisms
 
 
@@ -93,7 +92,9 @@ def get_symmetry_rmsd(mol, coords1, coords2, mol2=None, return_permutation=False
         mol = molecule.Molecule.from_rdkit(mol)
         mol2 = molecule.Molecule.from_rdkit(mol2) if mol2 is not None else mol2
         mol2_atomicnums = mol2.atomicnums if mol2 is not None else mol.atomicnums
-        mol2_adjacency_matrix = mol2.adjacency_matrix if mol2 is not None else mol.adjacency_matrix
+        mol2_adjacency_matrix = (
+            mol2.adjacency_matrix if mol2 is not None else mol.adjacency_matrix
+        )
         RMSD = symmrmsd(
             coords1,
             coords2,
@@ -101,7 +102,7 @@ def get_symmetry_rmsd(mol, coords1, coords2, mol2=None, return_permutation=False
             mol2_atomicnums,
             mol.adjacency_matrix,
             mol2_adjacency_matrix,
-            return_permutation=return_permutation
+            return_permutation=return_permutation,
         )
         return RMSD
 
@@ -115,9 +116,9 @@ def _rmsd_isomorphic_core(
     am2: np.ndarray,
     center: bool = False,
     minimize: bool = False,
-    isomorphisms: Optional[List[Tuple[List[int], List[int]]]] = None,
+    isomorphisms: list[tuple[list[int], list[int]]] | None = None,
     atol: float = 1e-9,
-) -> Tuple[float, List[Tuple[List[int], List[int]]], Tuple[List[int], List[int]]]:
+) -> tuple[float, list[tuple[list[int], list[int]]], tuple[list[int], list[int]]]:
     """
     Compute RMSD using graph isomorphism.
 
@@ -186,7 +187,7 @@ def _rmsd_isomorphic_core(
 
 def symmrmsd(
     coordsref: np.ndarray,
-    coords: Union[np.ndarray, List[np.ndarray]],
+    coords: np.ndarray | list[np.ndarray],
     apropsref: np.ndarray,
     aprops: np.ndarray,
     amref: np.ndarray,

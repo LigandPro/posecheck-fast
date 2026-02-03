@@ -8,7 +8,8 @@ def test_rmsd_identical_coords():
     """Test RMSD is zero for identical coordinates."""
     from posebench_fast.metrics.rmsd import get_symmetry_rmsd_with_isomorphisms
 
-    coords = np.random.randn(10, 3)
+    rng = np.random.default_rng(42)
+    coords = rng.standard_normal((10, 3))
     isomorphisms = [(list(range(10)), list(range(10)))]
 
     rmsd = get_symmetry_rmsd_with_isomorphisms(coords, coords, isomorphisms)
@@ -29,9 +30,10 @@ def test_rmsd_translated_coords():
 
 def test_compute_isomorphisms():
     """Test that isomorphisms are computed without error."""
-    from posebench_fast.metrics.rmsd import compute_all_isomorphisms
     from rdkit import Chem
     from rdkit.Chem import AllChem
+
+    from posebench_fast.metrics.rmsd import compute_all_isomorphisms
 
     # Simple molecule: methane with 3D coords
     mol = Chem.MolFromSmiles("C")
@@ -45,9 +47,9 @@ def test_compute_isomorphisms():
 
 def test_timeout_exception():
     """Test TimeoutException can be raised and caught."""
-    from posebench_fast.metrics.rmsd import TimeoutException, time_limit
     import time
 
-    with pytest.raises(TimeoutException):
-        with time_limit(1):
-            time.sleep(2)
+    from posebench_fast.metrics.rmsd import TimeoutException, time_limit
+
+    with pytest.raises(TimeoutException), time_limit(1):
+        time.sleep(2)

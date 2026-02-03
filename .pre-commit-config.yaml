@@ -1,0 +1,73 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Basic pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]  # Allow custom YAML tags
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=10000]  # Prevent files > 10MB
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-docstring-first
+      - id: debug-statements
+      - id: name-tests-test
+        args: [--pytest-test-first]
+
+  # Python dependency management with uv
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.18
+    hooks:
+      # Compile requirements
+      - id: uv-lock
+        name: uv lock
+        description: Update uv.lock file
+      # Compile requirements
+      - id: pip-compile
+        args: [pyproject.toml, -o, requirements.txt, --quiet]
+        files: ^pyproject\.toml$
+
+
+  # Ruff linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      # Run the linter
+      - id: ruff
+        name: ruff lint
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format
+        name: ruff format
+
+# Configuration
+default_language_version:
+  python: python3.11
+
+# Files to exclude
+exclude: |
+  (?x)^(
+      \.git/|
+      \.venv/|
+      __pycache__/|
+      .*\.egg-info/|
+      data/|
+      logs/|
+      output/|
+      models/|
+      archive/|
+      \.ipynb_checkpoints/
+  )$
+
+# Fail fast - stop after first failure
+fail_fast: false
