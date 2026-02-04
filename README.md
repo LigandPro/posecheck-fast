@@ -8,7 +8,7 @@ Fast docking evaluation metrics: symmetry-corrected RMSD and lightweight PoseBus
 ## Installation
 
 ```bash
-pip install posebench-fast
+uv pip install posebench-fast
 ```
 
 ## Features
