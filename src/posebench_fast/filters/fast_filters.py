@@ -262,6 +262,12 @@ def check_intermolecular_distance(
         mask = atoms_protein_all != atoms_vocab["H"]
         coords_protein = coords_protein[mask, :]
         atoms_protein_all = atoms_protein_all[mask]
+        # Keep numpy arrays in sync with the filtered tensors so that boolean
+        # masks derived from the tensors (e.g. ids_cond) can safely index them
+        # in the ShapeTverskyIndex volume-overlap calculation below.
+        mask_np = mask.cpu().numpy()
+        atom_names_cond = atom_names_cond[mask_np]
+        pos_cond = pos_cond[mask_np]
 
     radius_ligand = vdw_radius.to(device)[atoms_ligand]
     radius_protein_all = vdw_radius.to(device)[atoms_protein_all]
