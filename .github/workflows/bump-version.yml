@@ -88,4 +88,3 @@ jobs:
           git add pyproject.toml src/posecheck_fast/__init__.py
           git commit -m "chore(release): bump version"
           git push origin main
-
