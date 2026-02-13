@@ -1,25 +1,46 @@
-name: Bump Version
+name: Release
 
 on:
   push:
     branches: [main]
-    # Prevent infinite loops: the bump commit touches these files.
-    paths-ignore:
-      - "pyproject.toml"
-      - "src/posecheck_fast/__init__.py"
 
 permissions:
   contents: write
+  id-token: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  bump:
+  release:
+    # Avoid release loops when this workflow pushes the version bump commit.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files
+
+      - name: Run tests
+        run: uv run pytest tests/ -v
+
       - name: Bump patch version
+        id: bump
         shell: bash
         run: |
           set -euo pipefail
@@ -75,9 +96,13 @@ jobs:
           init_path.write_text(init_text2, encoding="utf-8")
 
           print(f"bumped {current} -> {new}")
+          print(new)
           PY
 
-      - name: Commit and push
+          NEW_VERSION="$(grep -m1 '^version' pyproject.toml | sed 's/.*\"\\(.*\\)\"/\\1/')"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
         shell: bash
         run: |
           set -euo pipefail
@@ -86,5 +111,38 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add pyproject.toml src/posecheck_fast/__init__.py
-          git commit -m "chore(release): bump version"
-          git push origin main
+          git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to PyPI (token)
+        if: secrets.PYPI_API_TOKEN != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Publish to PyPI (trusted publishing)
+        if: secrets.PYPI_API_TOKEN == ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.bump.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="$(git rev-parse HEAD)"
+
+          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+            echo "Tag already exists: $TAG"
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "$TARGET"
+
