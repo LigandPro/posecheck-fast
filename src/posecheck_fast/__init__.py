@@ -29,7 +29,7 @@ from posecheck_fast.metrics.rmsd import (
     time_limit,
 )
 
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 __all__ = [
     # RMSD
     "compute_all_isomorphisms",
