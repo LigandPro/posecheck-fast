@@ -101,7 +101,17 @@ jobs:
           print(new)
           PY
 
-          NEW_VERSION="$(grep -m1 '^version' pyproject.toml | sed 's/.*\"\\(.*\\)\"/\\1/')"
+          NEW_VERSION="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("pyproject.toml").read_text(encoding="utf-8")
+          m = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', text)
+          if not m:
+              raise SystemExit("ERROR: Could not find version in pyproject.toml")
+          print(m.group(1))
+          PY
+          )"
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit version bump
