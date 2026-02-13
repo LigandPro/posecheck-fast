@@ -34,11 +34,12 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "posebench_fast"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
+    "pre-commit>=4.0",
 ]
 
 [tool.ruff]

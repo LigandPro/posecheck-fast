@@ -28,14 +28,9 @@ repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.9.18
     hooks:
-      # Compile requirements
       - id: uv-lock
         name: uv lock
         description: Update uv.lock file
-      # Compile requirements
-      - id: pip-compile
-        args: [pyproject.toml, -o, requirements.txt, --quiet]
-        files: ^pyproject\.toml$
 
 
   # Ruff linter and formatter
@@ -52,7 +47,7 @@ repos:
 
 # Configuration
 default_language_version:
-  python: python3.11
+  python: python3
 
 # Files to exclude
 exclude: |
