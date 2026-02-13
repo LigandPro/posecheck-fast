@@ -16,7 +16,7 @@ uv pip install posecheck-fast
 ## Features
 
 - **Symmetry-corrected RMSD** — accounts for molecular symmetry (benzene, carboxylates, etc.)
-- **Fast PoseBusters filters** — 4 key checks in ~10ms instead of full 27-test suite (~1-2s)
+- **Fast PoseBusters filters** — 4 distance/clash checks optimized for throughput (auto-uses CUDA if available)
 
 ## Performance
 
